@@ -124,6 +124,26 @@
   .stats-scan-btn { display: inline-block; margin-top: 12px; padding: 6px 14px;
     border: 1px solid #3a9; border-radius: 6px; color: #3a9; font-size: 13px;
     background: none; cursor: pointer; }
+
+  /* Expand older weeks button */
+  .expand-btn { display: block; width: 100%; padding: 12px; margin-bottom: 8px;
+    background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 10px;
+    color: #555; font-size: 14px; cursor: pointer; text-align: center; }
+  .expand-btn:active { background: #ececec; }
+
+  /* Fullscreen mode */
+  body.fs header { display: none; }
+  body.fs .viewer .footer { display: none !important; }
+  body.fs .viewer .annot-bar { display: none !important; }
+  .fs-btn { padding: 4px 10px; border: 1px solid #ddd; border-radius: 6px;
+    background: #f5f5f5; font-size: 12px; color: #555; cursor: pointer;
+    flex-shrink: 0; white-space: nowrap; }
+  .fs-btn:active { background: #e8e8e8; }
+  .fs-exit-btn { position: fixed; top: max(14px, env(safe-area-inset-top));
+    right: 14px; z-index: 50; background: rgba(0,0,0,0.52); color: #fff;
+    border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px;
+    cursor: pointer; display: none; }
+  body.fs .fs-exit-btn { display: block; }
 </style>
 </head>
 <body>
@@ -376,26 +396,44 @@ async function renderWeekList(forceRefresh = false) {
     return;
   }
 
-  let html = '<div class="week-list">';
-  html += `<div class="hint">共 ${parsed.length} 个主日</div>`;
-  for (const f of parsed) {
+  const RECENT_COUNT = 4;
+  const recentWeeks = parsed.slice(0, RECENT_COUNT);
+  const olderWeeks  = parsed.slice(RECENT_COUNT);
+
+  function weekCardHtml(f) {
     const isCurr = current && f.name === current.name;
-    html += `<a class="week-card${isCurr?' current':''}" href="#/w/${encodeURIComponent(f.name)}">
+    return `<a class="week-card${isCurr?' current':''}" href="#/w/${encodeURIComponent(f.name)}">
       ${isCurr ? '<span class="badge">本周</span>' : ''}
       <div class="date">${f.dateStr.replace(/-/g,'/')} <span style="color:#aaa;font-size:13px;">${weekday(f.date)}</span></div>
       <div class="leader">${escapeHtml(f.leader)}</div>
     </a>`;
   }
+
+  let html = '<div class="week-list">';
+  html += `<div class="hint">共 ${parsed.length} 个主日</div>`;
+  for (const f of recentWeeks) html += weekCardHtml(f);
+  if (olderWeeks.length) {
+    html += `<div id="olderWeeks" style="display:none;">`;
+    for (const f of olderWeeks) html += weekCardHtml(f);
+    html += `</div>`;
+    html += `<button class="expand-btn" id="expandBtn">查看更多（${olderWeeks.length} 个主日）</button>`;
+  }
   html += '</div>';
-  // Stats entry
   html += '<a class="stats-link" href="#/stats">服事统计分析</a>';
-  // Unrecognized folders footnote
   const others = folders.filter(f => !parseFolderName(f.name));
   if (others.length) {
     html += `<div style="text-align:center;color:#ccc;font-size:11px;padding:0 16px 24px;">未识别文件夹：${others.map(f=>escapeHtml(f.name)).join('、')}</div>`;
   }
 
   app.innerHTML = `<div class="view">${html}</div>`;
+
+  const expandBtn = document.getElementById('expandBtn');
+  if (expandBtn) {
+    expandBtn.addEventListener('click', () => {
+      document.getElementById('olderWeeks').style.display = '';
+      expandBtn.style.display = 'none';
+    });
+  }
 }
 
 //==============================================================
@@ -457,6 +495,7 @@ async function renderSongViewer(folderName, forceRefresh = false) {
       <div class="footer">
         <button class="annot-toggle" id="annotToggle">批注</button>
         <div class="indicator" id="indicator">— / —</div>
+        <button class="fs-btn" id="fsBtn">全屏</button>
       </div>
       <div class="annot-bar" id="annotBar">
         <div class="color-dot sel" data-color="#333333" style="background:#333;"></div>
@@ -471,6 +510,7 @@ async function renderSongViewer(folderName, forceRefresh = false) {
         <button class="annot-act" id="annotClear">清空</button>
         <button class="annot-done" id="annotDone">完成</button>
       </div>
+      <button class="fs-exit-btn" id="fsExitBtn">退出全屏</button>
     </div>`;
 
   const annotCtrl = new AnnotationCtrl(
@@ -513,6 +553,20 @@ async function renderSongViewer(folderName, forceRefresh = false) {
   });
 
   viewer.start();
+
+  // Fullscreen toggle
+  const fsBtn = document.getElementById('fsBtn');
+  const fsExitBtn = document.getElementById('fsExitBtn');
+  const toggleFs = () => {
+    const entering = !document.body.classList.contains('fs');
+    document.body.classList.toggle('fs', entering);
+    fsBtn.textContent = entering ? '退出' : '全屏';
+  };
+  fsBtn.addEventListener('click', toggleFs);
+  fsExitBtn.addEventListener('click', () => {
+    document.body.classList.remove('fs');
+    fsBtn.textContent = '全屏';
+  });
 }
 
 //==============================================================
@@ -900,7 +954,11 @@ function stripExt(name) { return name.replace(/\.[^.]+$/, ''); }
 // Stats dashboard
 //==============================================================
 function normalizeFileName(name) {
-  return name.replace(/\.[^.]+$/, '').replace(/^\d+[\s._\-]+/, '').trim();
+  const noExt = name.replace(/\.[^.]+$/, '');
+  // Extract CJK block as canonical song name — strips leading numbers like "01起来荣耀" → "起来荣耀"
+  const cjk = noExt.match(/[一-鿿㐀-䶿豈-﫿　-〿！-￥·—…]+/g);
+  if (cjk && cjk.length > 0) return cjk.join('');
+  return noExt.replace(/^[\d\s._\-]+/, '').trim();
 }
 
 async function renderStats(doDeepScan = false) {
@@ -937,11 +995,6 @@ async function renderStats(doDeepScan = false) {
     showToast('扫描完成');
   }
 
-  // Leader frequency
-  const leaderMap = {};
-  for (const f of parsed) leaderMap[f.leader] = (leaderMap[f.leader] || 0) + 1;
-  const leaders = Object.entries(leaderMap).sort((a,b) => b[1] - a[1]);
-
   // Song frequency from cached song lists
   const songMap = {};
   let cachedWeeks = 0;
@@ -964,23 +1017,9 @@ async function renderStats(doDeepScan = false) {
   // Summary boxes
   html += `<div class="stats-summary">
     <div class="stat-box"><div class="stat-num">${totalWeeks}</div><div class="stat-lbl">主日聚会</div></div>
-    <div class="stat-box"><div class="stat-num">${leaders.length}</div><div class="stat-lbl">服事同工</div></div>
     <div class="stat-box"><div class="stat-num">${Object.keys(songMap).length}</div><div class="stat-lbl">歌曲种类</div></div>
+    <div class="stat-box"><div class="stat-num">${coveragePct}%</div><div class="stat-lbl">数据覆盖</div></div>
   </div>`;
-
-  // Worship leader chart
-  if (leaders.length) {
-    const maxL = leaders[0][1];
-    html += '<div class="stats-section"><div class="stats-h">同工服事次数</div>';
-    for (const [name, cnt] of leaders) {
-      html += `<div class="stats-row">
-        <div class="stats-name">${escapeHtml(name)}</div>
-        <div class="stats-bar-bg"><div class="stats-bar" style="width:${Math.round(cnt/maxL*100)}%"></div></div>
-        <div class="stats-cnt">${cnt} 次</div>
-      </div>`;
-    }
-    html += '</div>';
-  }
 
   // Song frequency chart
   if (topSongs.length) {
@@ -1024,6 +1063,7 @@ function destroyViewer() {
 function route() {
   const h = location.hash || '#/';
   destroyViewer();
+  document.body.classList.remove('fs');
   if (h.startsWith('#/w/')) {
     renderSongViewer(decodeURIComponent(h.slice(4)));
   } else if (h === '#/stats') {
