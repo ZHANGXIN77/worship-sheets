@@ -3,7 +3,7 @@
 // fast, cache-first for static assets. Image data is cached separately
 // in IndexedDB by the app code (keyed by Dropbox file rev).
 
-const VERSION = '1.0.0';
+const VERSION = '1.4.0';
 const APP_CACHE = 'worship-app-' + VERSION;
 const SHELL = ['./', './index.html', './manifest.json'];
 
