@@ -253,7 +253,7 @@ const APP_KEY = '83a0si04afgfc04';
 const REFRESH_TOKEN = 'K2PVGmaxpTEAAAAAAAAAAYmAY_cHtQFjJhidq4swI1mPxT5NF1K9PfaYWpsK6EF1';
 const TEAM_ROOT_ID = '2615124675';
 const WORSHIP_PATH = '/06-办公室电脑惠普HP/敬拜团歌谱';
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.3.2';
 const FALLBACK_DROPBOX_URL = 'https://www.dropbox.com/home/06-%E5%8A%9E%E5%85%AC%E5%AE%A4%E7%94%B5%E8%84%91%E6%83%A0%E6%99%AEHP/%E6%95%AC%E6%8B%9C%E5%9B%A2%E6%AD%8C%E8%B0%B1';
 const FOLDER_LIST_TTL_MS = 1000 * 60 * 30;
 const INDEX_TTL_MS   = 24 * 60 * 60 * 1000; // 24h before song index rebuild
@@ -1522,7 +1522,7 @@ class LinkCtrl {
 
   _update() {
     this._btn.classList.toggle('link-has', !!this._url);
-    this._btn.textContent = this._url ? '▶ 链接' : '链接';
+    this._btn.textContent = this._url ? '▶︎ 链接' : '链接';
   }
 
   _showOverlay() {
@@ -1539,7 +1539,7 @@ class LinkCtrl {
           autocorrect="off" autocapitalize="none" spellcheck="false">
         <div class="link-ov-actions">
           ${this._url
-            ? `<button class="link-ov-open" id="linkOvOpen">▶ 打开链接</button>`
+            ? `<button class="link-ov-open" id="linkOvOpen">▶︎ 打开链接</button>`
             : `<span></span>`}
           <div class="link-ov-btns">
             <button class="link-ov-cancel" id="linkOvCancel">取消</button>
