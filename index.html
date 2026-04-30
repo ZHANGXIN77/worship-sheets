@@ -9,6 +9,9 @@
 <title>敬拜团歌谱</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.png">
+<!-- Firebase Realtime Database (compat SDK, iOS 15 safe) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
@@ -144,6 +147,26 @@
     border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px;
     cursor: pointer; display: none; }
   body.fs .fs-exit-btn { display: block; }
+  /* Flow bar — pinned above the sheet, always visible */
+  .flow-bar { flex-shrink: 0; background: #fafafa; border-bottom: 1px solid #eaeaea;
+    display: flex; align-items: center; min-height: 36px; padding: 4px 10px 4px 12px;
+    gap: 8px; cursor: pointer; }
+  .flow-bar:active { background: #f0f0f0; }
+  .flow-disp { flex: 1; font-size: 13px; color: #c0c0c0; line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    -webkit-user-select: none; user-select: none; }
+  .flow-disp.flow-has { color: #1a1a1a; font-weight: 400; }
+  .flow-inp { flex: 1; font-size: 13px; color: #111; border: none; outline: none;
+    background: transparent; padding: 0; display: none; min-width: 0;
+    font-family: inherit; -webkit-user-select: text; user-select: text; }
+  .flow-stat { font-size: 11px; flex-shrink: 0; white-space: nowrap; color: #ccc;
+    transition: color 0.2s; }
+  .flow-s-ing     { color: #aaa; }
+  .flow-s-saving  { color: #e6a817; }
+  .flow-s-saved   { color: #3a9; }
+  .flow-s-pending { color: #cc8a00; }
+  /* Keep flow bar in fullscreen (it's content, not chrome) */
+  body.fs .flow-bar { background: #fff; }
 </style>
 </head>
 <body>
@@ -171,6 +194,28 @@ const FOLDER_LIST_TTL_MS = 1000 * 60 * 30;
 // Set to your GitHub Pages URL when image CDN is deployed, e.g.:
 // 'https://YOURNAME.github.io/worship-sheets'
 const CDN_BASE = '';
+
+//==============================================================
+// Firebase — 从 Firebase Console 复制你的 config 填入这里
+// 步骤：console.firebase.google.com → 项目 → 设置 → 网络应用
+//==============================================================
+const FIREBASE_CONFIG = {
+  apiKey:      'YOUR_API_KEY',
+  authDomain:  'YOUR_PROJECT.firebaseapp.com',
+  databaseURL: 'https://YOUR_PROJECT-default-rtdb.firebasedatabase.app',
+  projectId:   'YOUR_PROJECT',
+  appId:       'YOUR_APP_ID',
+};
+let _fbDbInst = null;
+function fbDb() {
+  if (_fbDbInst) return _fbDbInst;
+  if (!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') return null;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    _fbDbInst = firebase.database();
+  } catch (e) { console.warn('Firebase init:', e); }
+  return _fbDbInst;
+}
 
 function asciiJson(obj) {
   return JSON.stringify(obj).replace(/[^\x00-\x7F]/g,
@@ -487,6 +532,13 @@ async function renderSongViewer(folderName, forceRefresh = false) {
   app.innerHTML = `
     <div class="viewer">
       <div class="progress" id="progress"></div>
+      <div class="flow-bar" id="flowBar">
+        <span class="flow-disp" id="flowDisp">点击添加敬拜流程...</span>
+        <input class="flow-inp" id="flowInp" type="text"
+          placeholder="例：前奏 AB 间奏 AB BB 纪念主 B ※※※"
+          autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text">
+        <span class="flow-stat" id="flowStat"></span>
+      </div>
       <div class="stage" id="stage">
         <div class="slide" id="slide">
           <div class="loading">加载中...</div>
@@ -517,7 +569,13 @@ async function renderSongViewer(folderName, forceRefresh = false) {
     document.getElementById('stage'),
     document.getElementById('slide')
   );
-  viewer = new ViewerCtrl(songs, folderName, annotCtrl);
+  const flowCtrl = new FlowCtrl(
+    document.getElementById('flowBar'),
+    document.getElementById('flowDisp'),
+    document.getElementById('flowInp'),
+    document.getElementById('flowStat')
+  );
+  viewer = new ViewerCtrl(songs, folderName, annotCtrl, flowCtrl);
 
   // Annotation UI wiring
   const annotToggle = document.getElementById('annotToggle');
@@ -734,13 +792,211 @@ class AnnotationCtrl {
 }
 
 //==============================================================
+// FlowCtrl — per-song worship flow editor with Firebase sync
+//==============================================================
+class FlowCtrl {
+  constructor(barEl, dispEl, inpEl, statEl) {
+    this._bar  = barEl;
+    this._disp = dispEl;
+    this._inp  = inpEl;
+    this._stat = statEl;
+    this._key       = null;
+    this._dbRef     = null;
+    this._fbCb      = null;   // Firebase .on() handler ref for .off()
+    this._isEditing = false;
+    this._writing   = false;  // true while .set() is in-flight
+    this._saveTimer = null;
+    this._remoteVal = '';
+    this._bindUI();
+  }
+
+  _bindUI() {
+    // Tap anywhere in the bar to open edit (except when already editing)
+    this._bar.addEventListener('click', () => {
+      if (!this._isEditing) this._enterEdit();
+    });
+
+    this._inp.addEventListener('input', () => {
+      clearTimeout(this._saveTimer);
+      this._setStat('输入中...', 'ing');
+      this._saveTimer = setTimeout(() => this._commit(), 1500);
+    });
+
+    this._inp.addEventListener('blur', () => {
+      clearTimeout(this._saveTimer);
+      this._commit();
+    });
+
+    this._inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this._inp.blur(); }
+      if (e.key === 'Escape') {
+        clearTimeout(this._saveTimer);
+        this._inp.value = this._remoteVal;
+        this._isEditing = false;
+        this._inp.style.display = 'none';
+        this._disp.style.display = '';
+        this._setDisp(this._remoteVal);
+        this._setStat('', '');
+      }
+    });
+  }
+
+  setSong(songName) {
+    clearTimeout(this._saveTimer);
+    // Leave any in-progress edit without saving when the song changes
+    if (this._isEditing) {
+      this._isEditing = false;
+      this._inp.style.display = 'none';
+      this._disp.style.display = '';
+    }
+    // Detach previous Firebase listener
+    if (this._dbRef && this._fbCb) { this._dbRef.off('value', this._fbCb); this._fbCb = null; }
+    this._dbRef = null;
+    this._remoteVal = '';
+    this._key = null;
+
+    const norm = normalizeFileName(songName);
+    if (!norm) { this._setDisp(''); this._setStat('', ''); return; }
+
+    // Firebase keys cannot contain . # $ [ ] /
+    this._key = norm.replace(/[.#$[\]/]/g, '_');
+
+    // Show locally-pending value right away (before Firebase responds)
+    const localPending = localStorage.getItem('flow_p:' + this._key);
+    if (localPending !== null) {
+      this._remoteVal = localPending;
+      this._setDisp(localPending);
+      this._setStat('离线·已暂存', 'pending');
+    } else {
+      this._setDisp('');
+      this._setStat('', '');
+    }
+
+    const db = fbDb();
+    if (!db) return;
+
+    this._dbRef = db.ref('flows/' + this._key);
+    this._fbCb = this._dbRef.on('value', snap => {
+      const val = snap.val() != null ? String(snap.val()) : '';
+      this._remoteVal = val;
+      // Don't overwrite while user is typing or a write is in-flight
+      if (this._isEditing || this._writing) return;
+      // If the pending in localStorage matches what Firebase now has, the sync succeeded
+      const pending = localStorage.getItem('flow_p:' + this._key);
+      if (pending !== null && pending === val) localStorage.removeItem('flow_p:' + this._key);
+      this._setDisp(val);
+      if (!localStorage.getItem('flow_p:' + this._key)) this._setStat('', '');
+    }, () => {});
+
+    this._flushPending();
+  }
+
+  _enterEdit() {
+    if (this._isEditing) return;
+    this._isEditing = true;
+    const pending = localStorage.getItem('flow_p:' + this._key);
+    this._inp.value = pending !== null ? pending : this._remoteVal;
+    this._disp.style.display = 'none';
+    this._inp.style.display = '';
+    this._inp.focus();
+    this._setStat('输入中...', 'ing');
+  }
+
+  _commit() {
+    const text = this._inp.value;
+    this._isEditing = false;
+    this._inp.style.display = 'none';
+    this._disp.style.display = '';
+    this._setDisp(text);
+
+    const db = fbDb();
+    if (navigator.onLine && db && this._dbRef) {
+      this._writing = true;
+      this._setStat('保存中...', 'saving');
+      this._dbRef.set(text)
+        .then(() => {
+          this._writing = false;
+          this._remoteVal = text;
+          localStorage.removeItem('flow_p:' + this._key);
+          this._setStat('已保存', 'saved');
+          const mark = '已保存';
+          setTimeout(() => { if (this._stat.textContent === mark) this._setStat('', ''); }, 2500);
+        })
+        .catch(() => { this._writing = false; this._saveLocal(text); });
+    } else {
+      this._saveLocal(text);
+    }
+  }
+
+  _saveLocal(text) {
+    if (!this._key) return;
+    localStorage.setItem('flow_p:' + this._key, text);
+    this._setStat('离线·已暂存', 'pending');
+  }
+
+  async _flushPending() {
+    const db = fbDb();
+    if (!navigator.onLine || !db || !this._key) return;
+    const pending = localStorage.getItem('flow_p:' + this._key);
+    if (pending === null) return;
+    try {
+      await db.ref('flows/' + this._key).set(pending);
+      this._remoteVal = pending;
+      localStorage.removeItem('flow_p:' + this._key);
+      this._setStat('已同步', 'saved');
+      const mark = '已同步';
+      setTimeout(() => { if (this._stat.textContent === mark) this._setStat('', ''); }, 2000);
+    } catch (e) {}
+  }
+
+  _setDisp(text) {
+    this._disp.textContent = text || '点击添加敬拜流程...';
+    this._disp.classList.toggle('flow-has', !!text);
+  }
+
+  _setStat(text, type) {
+    this._stat.textContent = text;
+    this._stat.className = 'flow-stat' + (type ? ' flow-s-' + type : '');
+  }
+
+  destroy() {
+    clearTimeout(this._saveTimer);
+    if (this._dbRef && this._fbCb) { this._dbRef.off('value', this._fbCb); this._fbCb = null; }
+  }
+}
+
+// When coming back online, push all locally-pending flows to Firebase
+async function flushAllPendingFlows() {
+  const db = fbDb();
+  if (!db) return;
+  const prefix = 'flow_p:';
+  const toFlush = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) toFlush.push(k);
+  }
+  for (const lk of toFlush) {
+    const songKey = lk.slice(prefix.length);
+    const text = localStorage.getItem(lk);
+    if (text !== null) {
+      try {
+        await db.ref('flows/' + songKey).set(text);
+        localStorage.removeItem(lk);
+      } catch (e) {}
+    }
+  }
+}
+window.addEventListener('online', flushAllPendingFlows);
+
+//==============================================================
 // ViewerCtrl — swipe carousel + pinch zoom + double-tap
 //==============================================================
 class ViewerCtrl {
-  constructor(songs, folderName, annotCtrl) {
+  constructor(songs, folderName, annotCtrl, flowCtrl) {
     this.songs = songs;
     this.folderName = folderName;
     this._annotCtrl = annotCtrl;
+    this._flowCtrl  = flowCtrl;
     this.idx = 0;
     this.stage = document.getElementById('stage');
     this.slide = document.getElementById('slide');
@@ -760,6 +1016,7 @@ class ViewerCtrl {
     window.removeEventListener('keydown', this._onKey);
     for (const u of Object.values(this._blobUrls)) URL.revokeObjectURL(u);
     if (this._annotCtrl) this._annotCtrl.destroy();
+    if (this._flowCtrl)  this._flowCtrl.destroy();
   }
 
   async start() {
@@ -824,6 +1081,8 @@ class ViewerCtrl {
         const key = 'annot:' + this.folderName + ':' + song.name;
         this._annotCtrl.setImage(img, key);
       }
+      // Update flow bar for this song
+      if (this._flowCtrl) this._flowCtrl.setSong(song.name);
     } catch (err) {
       this.progress.style.width = '0';
       loadingEl.remove();
