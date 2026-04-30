@@ -187,7 +187,7 @@ const APP_KEY = '83a0si04afgfc04';
 const REFRESH_TOKEN = 'K2PVGmaxpTEAAAAAAAAAAYmAY_cHtQFjJhidq4swI1mPxT5NF1K9PfaYWpsK6EF1';
 const TEAM_ROOT_ID = '2615124675';
 const WORSHIP_PATH = '/06-办公室电脑惠普HP/敬拜团歌谱';
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.1';
 const FALLBACK_DROPBOX_URL = 'https://www.dropbox.com/home/06-%E5%8A%9E%E5%85%AC%E5%AE%A4%E7%94%B5%E8%84%91%E6%83%A0%E6%99%AEHP/%E6%95%AC%E6%8B%9C%E5%9B%A2%E6%AD%8C%E8%B0%B1';
 const FOLDER_LIST_TTL_MS = 1000 * 60 * 30;
 
@@ -842,6 +842,14 @@ class FlowCtrl {
         this._setStat('', '');
       }
     });
+
+    // iOS Safari does not fire blur when tapping non-interactive elements (images, divs).
+    // Intercept any touch outside the flow bar and explicitly blur the input.
+    document.addEventListener('touchstart', (e) => {
+      if (this._isEditing && !this._bar.contains(e.target)) {
+        this._inp.blur();
+      }
+    }, { passive: true });
   }
 
   setSong(songName) {
