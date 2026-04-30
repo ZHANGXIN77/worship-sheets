@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5, user-scalable=yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a0a">
+<title>敬拜团歌谱</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #0a0a0a; color: #e5e5e5;
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans", "Microsoft YaHei", sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; /* disable iOS long-press save image menu */ }
+  img { -webkit-touch-callout: none; pointer-events: auto; }
+  body { display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom); }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: #111; border-bottom: 1px solid #222; height: 48px; flex-shrink: 0; }
+  header button { background: transparent; border: none; color: #e5e5e5;
+    font-size: 24px; padding: 4px 10px; cursor: pointer; min-width: 36px; }
+  header button:active { background: #222; border-radius: 6px; }
+  header h1 { flex: 1; margin: 0; font-size: 16px; font-weight: 500;
+    text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #4a4; flex-shrink: 0; }
+  .dot.offline-cached { background: #cc8a00; }
+  .dot.offline-empty { background: #c33; }
+  main { flex: 1; overflow: hidden; position: relative; }
+  .view { position: absolute; inset: 0; overflow: auto;
+    -webkit-overflow-scrolling: touch; }
+
+  /* Week list */
+  .week-list { padding: 12px; }
+  .week-list .hint { color: #888; font-size: 13px; margin: 0 4px 12px; }
+  .week-card { display: block; padding: 16px; margin-bottom: 10px;
+    background: #1a1a1a; border-radius: 12px; border: 1px solid #222;
+    text-decoration: none; color: inherit; }
+  .week-card:active { background: #242424; }
+  .week-card.current { border-color: #4a8; background: #102018; }
+  .week-card .date { font-size: 18px; font-weight: 500; }
+  .week-card .leader { font-size: 14px; color: #aaa; margin-top: 4px; }
+  .week-card .badge { float: right; font-size: 11px; padding: 2px 8px;
+    background: #4a8; color: #000; border-radius: 4px; margin-top: 2px; }
+
+  /* Song viewer */
+  .viewer { display: flex; flex-direction: column; height: 100%; }
+  .viewer .stage { flex: 1; position: relative; overflow: hidden; touch-action: none;
+    background: #000; }
+  .viewer .slide { position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.3s ease; will-change: transform; }
+  .viewer .slide img { max-width: 100%; max-height: 100%;
+    object-fit: contain; transform-origin: center center; will-change: transform;
+    -webkit-user-drag: none; user-drag: none; }
+  .viewer .loading { color: #777; font-size: 14px; padding: 20px;
+    text-align: center; }
+  .viewer .err { color: #c66; font-size: 13px; padding: 16px; max-width: 280px;
+    text-align: center; }
+  .viewer .footer { height: 44px; background: #111; border-top: 1px solid #222;
+    display: flex; align-items: center; padding: 0 12px; gap: 12px; flex-shrink: 0; }
+  .viewer .footer .indicator { flex: 1; text-align: center; color: #888; font-size: 13px; }
+  .viewer .footer .song-name { color: #ddd; font-size: 13px; }
+  .viewer .footer button { background: #222; border: none; color: #ddd;
+    width: 40px; height: 32px; border-radius: 6px; font-size: 18px; }
+  .viewer .footer button:disabled { opacity: 0.3; }
+
+  /* Empty state / loading */
+  .empty { padding: 60px 20px; text-align: center; color: #888; }
+  .empty .icon { font-size: 36px; margin-bottom: 8px; opacity: 0.6; }
+  .empty .msg { font-size: 14px; line-height: 1.6; }
+  .empty .hint { font-size: 12px; color: #666; margin-top: 12px; }
+  .empty a { color: #6af; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.85); color: #fff; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; z-index: 100; pointer-events: none; max-width: 80%; text-align: center; }
+
+  /* Top progress bar for image preload */
+  .progress { position: absolute; top: 0; left: 0; height: 2px; background: #4a8;
+    width: 0; transition: width 0.2s ease; }
+</style>
+</head>
+<body>
+<header>
+  <button class="back" id="backBtn" style="display:none;">‹</button>
+  <h1 id="title">敬拜团歌谱</h1>
+  <div class="dot" id="statusDot" title="网络状态"></div>
+  <button class="refresh" id="refreshBtn">↻</button>
+</header>
+<main id="app"><div class="empty"><div class="icon">⏳</div><div class="msg">加载中...</div></div></main>
+<div id="toast" style="display:none;"></div>
+<script>
+//==============================================================
+// Configuration
+//==============================================================
+const APP_KEY = '83a0si04afgfc04';
+const REFRESH_TOKEN = 'K2PVGmaxpTEAAAAAAAAAAYmAY_cHtQFjJhidq4swI1mPxT5NF1K9PfaYWpsK6EF1';
+const TEAM_ROOT_ID = '2615124675';
+const WORSHIP_PATH = '/06-办公室电脑惠普HP/敬拜团歌谱';
+// HTTP headers must be ISO-8859-1; escape non-ASCII as \uXXXX
+function asciiJson(obj) {
+  return JSON.stringify(obj).replace(/[^\x00-\x7F]/g,
+    c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+const PATH_ROOT_HEADER = asciiJson({'.tag':'root','root':TEAM_ROOT_ID});
+const APP_VERSION = '1.0.0';
+const FALLBACK_DROPBOX_URL = 'https://www.dropbox.com/home/06-%E5%8A%9E%E5%85%AC%E5%AE%A4%E7%94%B5%E8%84%91%E6%83%A0%E6%99%AEHP/%E6%95%AC%E6%8B%9C%E5%9B%A2%E6%AD%8C%E8%B0%B1';
+const FOLDER_LIST_TTL_MS = 1000 * 60 * 30;        // 30 min
+const TOKEN_TTL_MS = 1000 * 60 * 60 * 3.5;        // ~3.5 hours
+
+//==============================================================
+// Tiny IndexedDB helpers (kv-style)
+//==============================================================
+let _db;
+function db() {
+  if (_db) return _db;
+  _db = new Promise((resolve, reject) => {
+    const req = indexedDB.open('worship-app', 1);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv');
+      if (!d.objectStoreNames.contains('images')) d.createObjectStore('images');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _db;
+}
+async function idbGet(store, key) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const tx = d.transaction(store, 'readonly');
+    const r = tx.objectStore(store).get(key);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(store, key, value) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const tx = d.transaction(store, 'readwrite');
+    const r = tx.objectStore(store).put(value, key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+//==============================================================
+// Auth: refresh access token using refresh_token (PKCE public client)
+//==============================================================
+let _accessToken = null;
+let _accessTokenExpiry = 0;
+
+async function getAccessToken(forceRefresh = false) {
+  // Try memory cache first
+  if (!forceRefresh && _accessToken && Date.now() < _accessTokenExpiry) return _accessToken;
+  // Try session storage cache
+  if (!forceRefresh) {
+    try {
+      const cached = JSON.parse(sessionStorage.getItem('access_token_cache') || 'null');
+      if (cached && cached.expiry > Date.now()) {
+        _accessToken = cached.token;
+        _accessTokenExpiry = cached.expiry;
+        return _accessToken;
+      }
+    } catch (e) {}
+  }
+  // Refresh from server
+  const params = new URLSearchParams();
+  params.append('grant_type', 'refresh_token');
+  params.append('refresh_token', REFRESH_TOKEN);
+  params.append('client_id', APP_KEY);
+  const r = await fetch('https://api.dropboxapi.com/oauth2/token', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: params.toString()
+  });
+  if (!r.ok) throw new Error('Token refresh failed: ' + r.status);
+  const j = await r.json();
+  _accessToken = j.access_token;
+  _accessTokenExpiry = Date.now() + (Math.min(j.expires_in, 14400) * 1000) - 60000;
+  try {
+    sessionStorage.setItem('access_token_cache', JSON.stringify({
+      token: _accessToken, expiry: _accessTokenExpiry
+    }));
+  } catch (e) {}
+  return _accessToken;
+}
+
+//==============================================================
+// Dropbox API helpers
+//==============================================================
+async function dbxApi(endpoint, body, opts = {}) {
+  const token = await getAccessToken();
+  const headers = {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+    'Dropbox-API-Path-Root': PATH_ROOT_HEADER,
+  };
+  if (opts.headers) Object.assign(headers, opts.headers);
+  const r = await fetch('https://api.dropboxapi.com' + endpoint, {
+    method: 'POST', headers, body: JSON.stringify(body)
+  });
+  if (r.status === 401) {
+    // token expired despite cache — refresh and retry once
+    await getAccessToken(true);
+    return dbxApi(endpoint, body, opts);
+  }
+  if (!r.ok) throw new Error('Dropbox API error ' + r.status + ': ' + await r.text());
+  return r.json();
+}
+
+async function dbxDownloadBytes(path) {
+  const token = await getAccessToken();
+  const r = await fetch('https://content.dropboxapi.com/2/files/download', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Dropbox-API-Path-Root': PATH_ROOT_HEADER,
+      'Dropbox-API-Arg': asciiJson({path: path}),
+    }
+  });
+  if (r.status === 401) { await getAccessToken(true); return dbxDownloadBytes(path); }
+  if (!r.ok) throw new Error('Download failed ' + r.status);
+  return r.blob();
+}
+
+async function listFolder(path) {
+  const j = await dbxApi('/2/files/list_folder', {path, recursive: false, limit: 200});
+  return j.entries;
+}
+
+//==============================================================
+// Folder name parsing  20260426_杨玮波弟兄
+//==============================================================
+function parseFolderName(name) {
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(.+)$/);
+  if (!m) return null;
+  const [, y, mo, d, leader] = m;
+  return {
+    name,
+    date: new Date(`${y}-${mo}-${d}T00:00:00`),
+    dateStr: `${y}-${mo}-${d}`,
+    displayDate: `${parseInt(mo)}月${parseInt(d)}日`,
+    leader: leader.trim(),
+  };
+}
+
+function findCurrentSundayFolder(parsedFolders, today = new Date()) {
+  // Find the Sunday folder closest to today (within 6 days before, or any within 1 day after)
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let best = null, bestScore = -Infinity;
+  for (const f of parsedFolders) {
+    const diffDays = Math.round((f.date - t0) / 86400000);
+    // Prefer today, then next Sunday, then most recent past
+    let score;
+    if (diffDays === 0) score = 1000;
+    else if (diffDays > 0 && diffDays <= 6) score = 500 - diffDays;
+    else if (diffDays < 0 && diffDays >= -6) score = 100 + diffDays; // smaller negative is worse
+    else continue;
+    if (score > bestScore) { bestScore = score; best = f; }
+  }
+  return best;
+}
+
+//==============================================================
+// Image cache (IDB) keyed by Dropbox file rev
+//==============================================================
+async function getImageBlob(path, rev) {
+  const key = rev || path;
+  const cached = await idbGet('images', key);
+  if (cached) return cached;
+  const blob = await dbxDownloadBytes(path);
+  try { await idbSet('images', key, blob); } catch (e) { /* over-quota etc */ }
+  return blob;
+}
+
+//==============================================================
+// UI rendering
+//==============================================================
+const app = document.getElementById('app');
+const titleEl = document.getElementById('title');
+const backBtn = document.getElementById('backBtn');
+const refreshBtn = document.getElementById('refreshBtn');
+const statusDot = document.getElementById('statusDot');
+const toastEl = document.getElementById('toast');
+
+let _activeBlobUrls = []; // track to revoke later
+
+function clearActiveBlobUrls() {
+  for (const u of _activeBlobUrls) URL.revokeObjectURL(u);
+  _activeBlobUrls = [];
+}
+
+function showToast(text, ms = 2000) {
+  toastEl.textContent = text;
+  toastEl.className = 'toast';
+  toastEl.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toastEl.style.display = 'none', ms);
+}
+
+function updateStatusDot() {
+  if (navigator.onLine) statusDot.className = 'dot';
+  else statusDot.className = 'dot offline-cached';
+  statusDot.title = navigator.onLine ? '在线' : '离线（仅缓存可用）';
+}
+window.addEventListener('online', updateStatusDot);
+window.addEventListener('offline', updateStatusDot);
+updateStatusDot();
+
+//-------------------------------------------------------------
+// Week list view
+//-------------------------------------------------------------
+async function renderWeekList(forceRefresh = false) {
+  titleEl.textContent = '敬拜团歌谱';
+  backBtn.style.display = 'none';
+  app.innerHTML = '<div class="empty"><div class="icon">⏳</div><div class="msg">正在读取周列表...</div></div>';
+
+  let folders;
+  try {
+    if (!forceRefresh) {
+      const cached = await idbGet('kv', 'week_list');
+      if (cached && Date.now() - cached.t < FOLDER_LIST_TTL_MS) {
+        folders = cached.entries;
+      }
+    }
+    if (!folders) {
+      const entries = await listFolder(WORSHIP_PATH);
+      folders = entries.filter(e => e['.tag'] === 'folder').map(e => ({name: e.name, id: e.id}));
+      await idbSet('kv', 'week_list', {t: Date.now(), entries: folders});
+    }
+  } catch (err) {
+    // Try cached fallback
+    const cached = await idbGet('kv', 'week_list');
+    if (cached) {
+      folders = cached.entries;
+      showToast('使用缓存（' + Math.round((Date.now() - cached.t) / 60000) + ' 分钟前）');
+    } else {
+      app.innerHTML = `<div class="empty"><div class="icon">⚠️</div>
+        <div class="msg">无法读取歌谱。请检查网络。</div>
+        <div class="hint">${escapeHtml(err.message || String(err))}</div>
+        <div class="hint" style="margin-top:20px;">
+          备用方案：<a href="${FALLBACK_DROPBOX_URL}" target="_blank" rel="noopener">在 Dropbox 网页里直接打开</a>
+        </div></div>`;
+      return;
+    }
+  }
+
+  // Parse and sort folders by date desc
+  const parsed = folders.map(f => parseFolderName(f.name)).filter(Boolean);
+  parsed.sort((a, b) => b.date - a.date);
+
+  // Detect current Sunday
+  const current = findCurrentSundayFolder(parsed);
+
+  // Auto-jump only on first load with no hash (and not forced)
+  if (!location.hash && !forceRefresh && current) {
+    location.hash = '#/w/' + encodeURIComponent(current.name);
+    return;
+  }
+
+  let html = '<div class="week-list">';
+  html += '<div class="hint">共 ' + parsed.length + ' 个主日</div>';
+  for (const f of parsed) {
+    const isCurr = current && f.name === current.name;
+    html += `<a class="week-card${isCurr ? ' current' : ''}" href="#/w/${encodeURIComponent(f.name)}">
+      ${isCurr ? '<span class="badge">本周</span>' : ''}
+      <div class="date">${f.dateStr.replace(/-/g, '/')} <span style="color:#888;font-size:14px;">${weekday(f.date)}</span></div>
+      <div class="leader">${escapeHtml(f.leader)}</div>
+    </a>`;
+  }
+  html += '</div>';
+
+  // Show "往期" (archive) folder if it exists, as a subtle link at the bottom
+  const archives = folders.filter(f => !parseFolderName(f.name)).map(f => f.name);
+  if (archives.length) {
+    html += '<div style="text-align:center;color:#666;font-size:12px;padding:8px 16px 24px;">未识别为日期格式的文件夹：' + archives.map(escapeHtml).join('、') + '</div>';
+  }
+  app.innerHTML = html;
+}
+
+function weekday(d) {
+  return ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+//-------------------------------------------------------------
+// Song viewer (carousel of images)
+//-------------------------------------------------------------
+let viewer = null;
+
+async function renderSongViewer(folderName, forceRefresh = false) {
+  backBtn.style.display = '';
+  const parsed = parseFolderName(folderName);
+  titleEl.textContent = parsed
+    ? `${parsed.dateStr.slice(5).replace('-','/')} · ${parsed.leader}`
+    : folderName;
+  app.innerHTML = '<div class="empty"><div class="icon">⏳</div><div class="msg">正在加载这周歌谱...</div></div>';
+
+  const folderPath = WORSHIP_PATH + '/' + folderName;
+  const cacheKey = 'songs:' + folderName;
+  let songs;
+
+  try {
+    if (!forceRefresh) {
+      const cached = await idbGet('kv', cacheKey);
+      if (cached && Date.now() - cached.t < FOLDER_LIST_TTL_MS) {
+        songs = cached.entries;
+      }
+    }
+    if (!songs) {
+      const entries = await listFolder(folderPath);
+      songs = entries
+        .filter(e => e['.tag'] === 'file' && /\.(jpg|jpeg|png|gif|webp)$/i.test(e.name))
+        .map(e => ({name: e.name, path: e.path_lower, rev: e.rev, size: e.size}));
+      // Sort by leading number prefix, then by name
+      songs.sort((a, b) => {
+        const na = parseInt(a.name); const nb = parseInt(b.name);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        if (!isNaN(na)) return -1;
+        if (!isNaN(nb)) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      await idbSet('kv', cacheKey, {t: Date.now(), entries: songs});
+    }
+  } catch (err) {
+    const cached = await idbGet('kv', cacheKey);
+    if (cached) {
+      songs = cached.entries;
+      showToast('使用缓存歌曲列表');
+    } else {
+      app.innerHTML = `<div class="empty"><div class="icon">⚠️</div>
+        <div class="msg">无法读取这周的歌谱。请检查网络。</div>
+        <div class="hint">${escapeHtml(err.message || String(err))}</div></div>`;
+      return;
+    }
+  }
+
+  if (!songs.length) {
+    app.innerHTML = '<div class="empty"><div class="icon">📭</div><div class="msg">这周文件夹里没有图片歌谱</div></div>';
+    return;
+  }
+
+  // Build viewer DOM
+  app.innerHTML = `
+    <div class="viewer">
+      <div class="stage" id="stage">
+        <div class="progress" id="progress"></div>
+        <div class="slide" id="slide">
+          <div class="loading">加载中...</div>
+        </div>
+      </div>
+      <div class="footer">
+        <button id="prev">‹</button>
+        <div class="indicator" id="indicator">— / —</div>
+        <button id="next">›</button>
+      </div>
+    </div>`;
+
+  viewer = new ViewerCtrl(songs);
+  viewer.start();
+}
+
+//-------------------------------------------------------------
+// ViewerCtrl: image carousel with swipe + pinch zoom + double-tap
+//-------------------------------------------------------------
+class ViewerCtrl {
+  constructor(songs) {
+    this.songs = songs;
+    this.idx = 0;
+    this.stage = document.getElementById('stage');
+    this.slide = document.getElementById('slide');
+    this.indicator = document.getElementById('indicator');
+    this.progress = document.getElementById('progress');
+    this.scale = 1; this.tx = 0; this.ty = 0;
+    this._blobUrls = {};
+    document.getElementById('prev').addEventListener('click', () => this.go(-1));
+    document.getElementById('next').addEventListener('click', () => this.go(1));
+    this._bindGestures();
+    window.addEventListener('keydown', this._onKey = (e) => {
+      if (e.key === 'ArrowLeft') this.go(-1);
+      else if (e.key === 'ArrowRight') this.go(1);
+    });
+  }
+
+  destroy() {
+    window.removeEventListener('keydown', this._onKey);
+    for (const u of Object.values(this._blobUrls)) URL.revokeObjectURL(u);
+  }
+
+  async start() {
+    await this.show(0);
+    // Preload neighbors
+    if (this.songs.length > 1) this._preload(1);
+    if (this.songs.length > 2) this._preload(2);
+  }
+
+  async _preload(i) {
+    if (i < 0 || i >= this.songs.length) return;
+    if (this._blobUrls[i]) return;
+    try {
+      const s = this.songs[i];
+      const blob = await getImageBlob(s.path, s.rev);
+      if (!this._blobUrls[i]) this._blobUrls[i] = URL.createObjectURL(blob);
+    } catch (e) {/* swallow preload errors */}
+  }
+
+  async show(i) {
+    if (i < 0 || i >= this.songs.length) return;
+    this.idx = i;
+    this._resetTransform();
+    this.indicator.textContent = `${i + 1} / ${this.songs.length}  ·  ${stripExt(this.songs[i].name)}`;
+    this.slide.innerHTML = '<div class="loading">加载中...</div>';
+    this.progress.style.width = '20%';
+    try {
+      let url = this._blobUrls[i];
+      if (!url) {
+        const s = this.songs[i];
+        const blob = await getImageBlob(s.path, s.rev);
+        url = this._blobUrls[i] = URL.createObjectURL(blob);
+      }
+      this.progress.style.width = '100%';
+      const img = new Image();
+      img.onload = () => { this.progress.style.width = '0'; };
+      img.src = url;
+      img.id = 'curImg';
+      this.slide.innerHTML = '';
+      this.slide.appendChild(img);
+      this._curImg = img;
+    } catch (err) {
+      this.progress.style.width = '0';
+      this.slide.innerHTML = `<div class="err">加载失败：${escapeHtml(err.message || String(err))}<br>请检查网络或拉下刷新</div>`;
+    }
+    // Preload next
+    this._preload(i + 1);
+    this._preload(i - 1);
+    // Free far images to save memory (keep only 5 around)
+    for (const k of Object.keys(this._blobUrls)) {
+      const ki = +k;
+      if (Math.abs(ki - i) > 2) {
+        URL.revokeObjectURL(this._blobUrls[ki]);
+        delete this._blobUrls[ki];
+      }
+    }
+  }
+
+  go(delta) {
+    const ni = this.idx + delta;
+    if (ni < 0 || ni >= this.songs.length) {
+      // bounce
+      this.slide.style.transform = `translateX(${delta < 0 ? 20 : -20}px)`;
+      setTimeout(() => this.slide.style.transform = '', 200);
+      return;
+    }
+    this.show(ni);
+  }
+
+  _resetTransform() {
+    this.scale = 1; this.tx = 0; this.ty = 0;
+    if (this._curImg) this._curImg.style.transform = '';
+  }
+  _applyTransform() {
+    if (this._curImg)
+      this._curImg.style.transform = `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`;
+  }
+
+  _bindGestures() {
+    let startX = 0, startY = 0, startDist = 0, startScale = 1, startTx = 0, startTy = 0;
+    let mode = null; // 'swipe' | 'pinch' | 'pan'
+    let lastTap = 0;
+
+    const onStart = (e) => {
+      const t = e.touches;
+      if (!t || t.length === 0) return;
+      if (t.length === 2) {
+        mode = 'pinch';
+        startDist = dist2(t[0], t[1]);
+        startScale = this.scale;
+      } else {
+        // single touch: swipe or pan (if zoomed)
+        startX = t[0].clientX; startY = t[0].clientY;
+        startTx = this.tx; startTy = this.ty;
+        mode = (this.scale > 1.05) ? 'pan' : 'swipe';
+      }
+    };
+    const onMove = (e) => {
+      const t = e.touches;
+      if (!t) return;
+      e.preventDefault();
+      if (mode === 'pinch' && t.length === 2) {
+        const d = dist2(t[0], t[1]);
+        this.scale = Math.max(1, Math.min(5, startScale * d / startDist));
+        this._applyTransform();
+      } else if (mode === 'pan' && t.length === 1) {
+        this.tx = startTx + (t[0].clientX - startX);
+        this.ty = startTy + (t[0].clientY - startY);
+        this._applyTransform();
+      } else if (mode === 'swipe' && t.length === 1) {
+        const dx = t[0].clientX - startX;
+        // visual feedback during drag
+        this.slide.style.transform = `translateX(${dx}px)`;
+      }
+    };
+    const onEnd = (e) => {
+      if (mode === 'swipe') {
+        const dx = (e.changedTouches && e.changedTouches[0])
+          ? (e.changedTouches[0].clientX - startX) : 0;
+        this.slide.style.transform = '';
+        if (Math.abs(dx) > 60) this.go(dx < 0 ? 1 : -1);
+      } else if (mode === 'pinch') {
+        // snap back to 1 if close, clamp
+        if (this.scale < 1.05) this._resetTransform();
+      }
+      mode = null;
+    };
+    const onClick = () => {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        // double-tap: reset transform
+        this._resetTransform();
+      }
+      lastTap = now;
+    };
+    this.stage.addEventListener('touchstart', onStart, {passive: false});
+    this.stage.addEventListener('touchmove', onMove, {passive: false});
+    this.stage.addEventListener('touchend', onEnd);
+    this.stage.addEventListener('touchcancel', onEnd);
+    this.stage.addEventListener('click', onClick);
+  }
+}
+
+function dist2(a, b) {
+  const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+function stripExt(name) {
+  return name.replace(/\.[^.]+$/, '');
+}
+
+//==============================================================
+// Router
+//==============================================================
+function destroyViewer() {
+  if (viewer) { viewer.destroy(); viewer = null; }
+  clearActiveBlobUrls();
+}
+
+function route() {
+  const h = location.hash || '#/';
+  destroyViewer();
+  if (h.startsWith('#/w/')) {
+    const folderName = decodeURIComponent(h.slice(4));
+    renderSongViewer(folderName);
+  } else {
+    renderWeekList();
+  }
+}
+
+window.addEventListener('hashchange', route);
+backBtn.addEventListener('click', () => {
+  if (location.hash && location.hash !== '#/') location.hash = '#/';
+  else history.back();
+});
+refreshBtn.addEventListener('click', async () => {
+  refreshBtn.style.opacity = '0.4';
+  destroyViewer();
+  if (location.hash.startsWith('#/w/')) {
+    await renderSongViewer(decodeURIComponent(location.hash.slice(4)), true);
+  } else {
+    await renderWeekList(true);
+  }
+  refreshBtn.style.opacity = '';
+});
+
+// Boot
+route();
+
+// Service worker registration
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js?v=' + APP_VERSION).catch(() => {});
+}
+</script>
+</body>
+</html>
