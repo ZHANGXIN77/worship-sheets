@@ -187,7 +187,7 @@ const APP_KEY = '83a0si04afgfc04';
 const REFRESH_TOKEN = 'K2PVGmaxpTEAAAAAAAAAAYmAY_cHtQFjJhidq4swI1mPxT5NF1K9PfaYWpsK6EF1';
 const TEAM_ROOT_ID = '2615124675';
 const WORSHIP_PATH = '/06-办公室电脑惠普HP/敬拜团歌谱';
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const FALLBACK_DROPBOX_URL = 'https://www.dropbox.com/home/06-%E5%8A%9E%E5%85%AC%E5%AE%A4%E7%94%B5%E8%84%91%E6%83%A0%E6%99%AEHP/%E6%95%AC%E6%8B%9C%E5%9B%A2%E6%AD%8C%E8%B0%B1';
 const FOLDER_LIST_TTL_MS = 1000 * 60 * 30;
 
@@ -813,7 +813,6 @@ class FlowCtrl {
   }
 
   _bindUI() {
-    // Tap anywhere in the bar to open edit (except when already editing)
     this._bar.addEventListener('click', () => {
       if (!this._isEditing) this._enterEdit();
     });
@@ -821,19 +820,21 @@ class FlowCtrl {
     this._inp.addEventListener('input', () => {
       clearTimeout(this._saveTimer);
       this._setStat('输入中...', 'ing');
-      this._saveTimer = setTimeout(() => this._commit(), 1500);
+      // Background auto-save: keep keyboard open, save silently
+      this._saveTimer = setTimeout(() => this._push(this._inp.value, false), 1500);
     });
 
     this._inp.addEventListener('blur', () => {
       clearTimeout(this._saveTimer);
-      this._commit();
+      // Guard: only commit if still in edit mode (setSong() sets _isEditing=false
+      // before hiding the input, so spurious blur calls are safely ignored)
+      if (this._isEditing) this._push(this._inp.value, true);
     });
 
     this._inp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); this._inp.blur(); }
+      if (e.key === 'Enter') { e.preventDefault(); this._push(this._inp.value, true); }
       if (e.key === 'Escape') {
         clearTimeout(this._saveTimer);
-        this._inp.value = this._remoteVal;
         this._isEditing = false;
         this._inp.style.display = 'none';
         this._disp.style.display = '';
@@ -904,12 +905,15 @@ class FlowCtrl {
     this._setStat('输入中...', 'ing');
   }
 
-  _commit() {
-    const text = this._inp.value;
-    this._isEditing = false;
-    this._inp.style.display = 'none';
-    this._disp.style.display = '';
-    this._setDisp(text);
+  // close=true: exit edit mode (dismiss keyboard) then save
+  // close=false: save in background, keyboard stays open
+  _push(text, close) {
+    if (close) {
+      this._isEditing = false;
+      this._inp.style.display = 'none';
+      this._disp.style.display = '';
+      this._setDisp(text);
+    }
 
     const db = fbDb();
     if (navigator.onLine && db && this._dbRef) {
@@ -922,7 +926,11 @@ class FlowCtrl {
           localStorage.removeItem('flow_p:' + this._key);
           this._setStat('已保存', 'saved');
           const mark = '已保存';
-          setTimeout(() => { if (this._stat.textContent === mark) this._setStat('', ''); }, 2500);
+          setTimeout(() => {
+            if (this._stat.textContent !== mark) return;
+            // Restore status appropriate for current state
+            this._setStat(this._isEditing ? '输入中...' : '', this._isEditing ? 'ing' : '');
+          }, 2000);
         })
         .catch(() => { this._writing = false; this._saveLocal(text); });
     } else {
