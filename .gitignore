@@ -1,0 +1,16 @@
+# Dropbox credentials — never commit
+dropbox-credentials.json
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Generated compressed images (built by GitHub Actions)
+public/sheets/

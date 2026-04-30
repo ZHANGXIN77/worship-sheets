@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5, user-scalable=yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
+<title>敬拜团歌谱</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #ffffff; color: #111111;
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans", "Microsoft YaHei", sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  img { -webkit-touch-callout: none; pointer-events: auto; }
+  body { display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom); }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: #ffffff; border-bottom: 1px solid #e0e0e0; height: 48px; flex-shrink: 0; }
+  header button { background: transparent; border: none; color: #333;
+    font-size: 22px; padding: 4px 8px; cursor: pointer; min-width: 32px; }
+  header button:active { background: #f0f0f0; border-radius: 6px; }
+  header h1 { flex: 1; margin: 0; font-size: 16px; font-weight: 500;
+    text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #4a4; flex-shrink: 0; }
+  .dot.offline-cached { background: #cc8a00; }
+  .dot.offline-empty { background: #c33; }
+  main { flex: 1; overflow: hidden; position: relative; }
+
+  /* Scrollable wrapper */
+  .view { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden;
+    -webkit-overflow-scrolling: touch; }
+
+  /* Week list */
+  .week-list { padding: 12px 12px 4px; }
+  .week-list .hint { color: #999; font-size: 13px; margin: 0 4px 12px; }
+  .week-card { display: block; padding: 16px; margin-bottom: 10px;
+    background: #ffffff; border-radius: 12px; border: 1px solid #e0e0e0;
+    text-decoration: none; color: inherit; }
+  .week-card:active { background: #f5f5f5; }
+  .week-card.current { border-color: #3a9; background: #eaf6f0; }
+  .week-card .date { font-size: 17px; font-weight: 500; color: #111; }
+  .week-card .leader { font-size: 14px; color: #666; margin-top: 4px; }
+  .week-card .badge { float: right; font-size: 11px; padding: 2px 8px;
+    background: #3a9; color: #fff; border-radius: 4px; margin-top: 2px; }
+  .stats-link { display: block; text-align: center; padding: 14px 16px 24px;
+    color: #3a9; font-size: 14px; text-decoration: none; }
+  .stats-link:active { opacity: 0.6; }
+
+  /* Song viewer */
+  .viewer { display: flex; flex-direction: column; height: 100%; position: relative; }
+  .progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #3a9;
+    width: 0; transition: width 0.2s ease; z-index: 20; pointer-events: none; }
+  .viewer .stage { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    -webkit-overflow-scrolling: touch; touch-action: pan-y; background: #f2f2f2; }
+  .viewer .slide { display: block; position: relative; transition: transform 0.3s ease;
+    will-change: transform; }
+  .viewer .slide img { width: 100%; height: auto; display: block;
+    transform-origin: center top; will-change: transform;
+    -webkit-user-drag: none; user-drag: none; }
+  .viewer .loading { color: #999; font-size: 14px; padding: 60px 20px; text-align: center; }
+  .viewer .err { color: #c66; font-size: 13px; padding: 16px; max-width: 280px;
+    text-align: center; margin: 0 auto; }
+  /* Footer: indicator + annotation toggle */
+  .viewer .footer { height: 44px; background: #ffffff; border-top: 1px solid #e0e0e0;
+    display: flex; align-items: center; padding: 0 10px; gap: 8px; flex-shrink: 0; }
+  .viewer .footer .indicator { flex: 1; color: #888; font-size: 13px; text-align: center; }
+  .annot-toggle { background: none; border: 1px solid #ddd; border-radius: 6px;
+    padding: 4px 10px; font-size: 12px; color: #666; cursor: pointer; white-space: nowrap;
+    flex-shrink: 0; }
+  .annot-toggle.on { background: #eaf6f0; border-color: #3a9; color: #2d8a72; }
+  /* Annotation toolbar */
+  .annot-bar { height: 48px; background: #fafafa; border-top: 1px solid #e8e8e8;
+    display: none; align-items: center; padding: 0 10px; gap: 7px; flex-shrink: 0; }
+  .annot-bar.visible { display: flex; }
+  .color-dot { width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; flex-shrink: 0; transition: border-color 0.15s; }
+  .color-dot.sel { border-color: #333; }
+  .annot-size { padding: 3px 9px; border: 1px solid #ddd; border-radius: 5px;
+    background: #f5f5f5; font-size: 12px; color: #444; cursor: pointer; }
+  .annot-size.sel { background: #eaf6f0; border-color: #3a9; color: #2d8a72; }
+  .annot-act { padding: 3px 9px; border: 1px solid #ddd; border-radius: 5px;
+    background: #f5f5f5; font-size: 12px; color: #444; cursor: pointer; }
+  .annot-sep { width: 1px; height: 20px; background: #e0e0e0; flex-shrink: 0; }
+  .annot-done { padding: 4px 12px; border: none; border-radius: 6px;
+    background: #3a9; color: #fff; font-size: 12px; cursor: pointer; margin-left: auto; }
+  /* Annotation canvas */
+  .annot-canvas { position: absolute; top: 0; left: 0; pointer-events: none;
+    touch-action: none; display: block; }
+  .annot-canvas.active { pointer-events: auto; cursor: crosshair; }
+
+  /* Empty / loading */
+  .empty { padding: 60px 20px; text-align: center; color: #999; }
+  .empty .msg { font-size: 14px; line-height: 1.6; }
+  .empty .hint { font-size: 12px; color: #bbb; margin-top: 12px; }
+  .empty a { color: #3a9; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.72); color: #fff; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; z-index: 100; pointer-events: none; max-width: 80%; text-align: center; }
+
+  /* Stats dashboard */
+  .stats-page { padding: 16px; }
+  .stats-summary { display: flex; gap: 10px; margin-bottom: 22px; }
+  .stat-box { flex: 1; background: #fff; border: 1px solid #e0e0e0; border-radius: 12px;
+    padding: 14px 6px; text-align: center; }
+  .stat-num { font-size: 26px; font-weight: 600; color: #111; }
+  .stat-lbl { font-size: 11px; color: #999; margin-top: 2px; line-height: 1.4; }
+  .stats-section { margin-bottom: 24px; }
+  .stats-h { font-size: 12px; font-weight: 600; color: #888; letter-spacing: 0.5px;
+    text-transform: uppercase; margin-bottom: 10px; }
+  .stats-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .stats-name { font-size: 13px; color: #111; width: 110px; flex-shrink: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stats-bar-bg { flex: 1; height: 6px; background: #f0f0f0; border-radius: 3px; }
+  .stats-bar { height: 100%; background: #3a9; border-radius: 3px; transition: width 0.4s ease; }
+  .stats-cnt { font-size: 12px; color: #888; width: 32px; text-align: right; flex-shrink: 0; }
+  .stats-note { font-size: 12px; color: #aaa; margin-top: 10px; line-height: 1.5; }
+  .stats-scan-btn { display: inline-block; margin-top: 12px; padding: 6px 14px;
+    border: 1px solid #3a9; border-radius: 6px; color: #3a9; font-size: 13px;
+    background: none; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <button id="backBtn" style="display:none;">&#8249;</button>
+  <h1 id="title">敬拜团歌谱</h1>
+  <div class="dot" id="statusDot"></div>
+  <button id="refreshBtn">&#8635;</button>
+</header>
+<main id="app"><div class="empty"><div class="msg">加载中...</div></div></main>
+<div id="toast" style="display:none;"></div>
+
+<script>
+//==============================================================
+// Config
+//==============================================================
+const APP_KEY = '83a0si04afgfc04';
+const REFRESH_TOKEN = 'K2PVGmaxpTEAAAAAAAAAAYmAY_cHtQFjJhidq4swI1mPxT5NF1K9PfaYWpsK6EF1';
+const TEAM_ROOT_ID = '2615124675';
+const WORSHIP_PATH = '/06-办公室电脑惠普HP/敬拜团歌谱';
+const APP_VERSION = '1.1.0';
+const FALLBACK_DROPBOX_URL = 'https://www.dropbox.com/home/06-%E5%8A%9E%E5%85%AC%E5%AE%A4%E7%94%B5%E8%84%91%E6%83%A0%E6%99%AEHP/%E6%95%AC%E6%8B%9C%E5%9B%A2%E6%AD%8C%E8%B0%B1';
+const FOLDER_LIST_TTL_MS = 1000 * 60 * 30;
+
+// Set to your GitHub Pages URL when image CDN is deployed, e.g.:
+// 'https://YOURNAME.github.io/worship-sheets'
+const CDN_BASE = '';
+
+function asciiJson(obj) {
+  return JSON.stringify(obj).replace(/[^\x00-\x7F]/g,
+    c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+const PATH_ROOT_HEADER = asciiJson({'.tag':'root','root':TEAM_ROOT_ID});
+
+//==============================================================
+// IndexedDB (kv + images + annotations)
+//==============================================================
+let _db;
+function db() {
+  if (_db) return _db;
+  _db = new Promise((resolve, reject) => {
+    const req = indexedDB.open('worship-app', 2);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv');
+      if (!d.objectStoreNames.contains('images')) d.createObjectStore('images');
+      if (!d.objectStoreNames.contains('annotations')) d.createObjectStore('annotations');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _db;
+}
+async function idbGet(store, key) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const r = d.transaction(store, 'readonly').objectStore(store).get(key);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(store, key, value) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const tx = d.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value, key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+//==============================================================
+// Auth
+//==============================================================
+let _accessToken = null, _accessTokenExpiry = 0;
+async function getAccessToken(forceRefresh = false) {
+  if (!forceRefresh && _accessToken && Date.now() < _accessTokenExpiry) return _accessToken;
+  if (!forceRefresh) {
+    try {
+      const c = JSON.parse(sessionStorage.getItem('at') || 'null');
+      if (c && c.expiry > Date.now()) { _accessToken = c.token; _accessTokenExpiry = c.expiry; return _accessToken; }
+    } catch (e) {}
+  }
+  const p = new URLSearchParams({grant_type:'refresh_token',refresh_token:REFRESH_TOKEN,client_id:APP_KEY});
+  const r = await fetch('https://api.dropboxapi.com/oauth2/token',
+    {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:p.toString()});
+  if (!r.ok) throw new Error('Token refresh failed: ' + r.status);
+  const j = await r.json();
+  _accessToken = j.access_token;
+  _accessTokenExpiry = Date.now() + (Math.min(j.expires_in, 14400) * 1000) - 60000;
+  try { sessionStorage.setItem('at', JSON.stringify({token: _accessToken, expiry: _accessTokenExpiry})); } catch(e) {}
+  return _accessToken;
+}
+
+//==============================================================
+// Dropbox API
+//==============================================================
+async function dbxApi(endpoint, body) {
+  const token = await getAccessToken();
+  const r = await fetch('https://api.dropboxapi.com' + endpoint, {
+    method: 'POST',
+    headers: {'Authorization':'Bearer '+token, 'Content-Type':'application/json', 'Dropbox-API-Path-Root':PATH_ROOT_HEADER},
+    body: JSON.stringify(body)
+  });
+  if (r.status === 401) { await getAccessToken(true); return dbxApi(endpoint, body); }
+  if (!r.ok) throw new Error('Dropbox API ' + r.status + ': ' + await r.text());
+  return r.json();
+}
+async function dbxDownloadBytes(path) {
+  const token = await getAccessToken();
+  const r = await fetch('https://content.dropboxapi.com/2/files/download', {
+    method: 'POST',
+    headers: {'Authorization':'Bearer '+token, 'Dropbox-API-Path-Root':PATH_ROOT_HEADER,
+      'Dropbox-API-Arg': asciiJson({path})}
+  });
+  if (r.status === 401) { await getAccessToken(true); return dbxDownloadBytes(path); }
+  if (!r.ok) throw new Error('Download failed ' + r.status);
+  return r.blob();
+}
+async function listFolder(path) {
+  const j = await dbxApi('/2/files/list_folder', {path, recursive: false, limit: 200});
+  return j.entries;
+}
+
+//==============================================================
+// Folder parsing
+//==============================================================
+function parseFolderName(name) {
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(.+)$/);
+  if (!m) return null;
+  const [, y, mo, d, leader] = m;
+  return { name, date: new Date(`${y}-${mo}-${d}T00:00:00`),
+    dateStr: `${y}-${mo}-${d}`, leader: leader.trim() };
+}
+function findCurrentFolder(parsed, today = new Date()) {
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let best = null, bestScore = -Infinity;
+  for (const f of parsed) {
+    const diff = Math.round((f.date - t0) / 86400000);
+    let score;
+    if (diff === 0) score = 1000;
+    else if (diff > 0 && diff <= 6) score = 500 - diff;
+    else if (diff < 0 && diff >= -6) score = 100 + diff;
+    else continue;
+    if (score > bestScore) { bestScore = score; best = f; }
+  }
+  return best;
+}
+function weekday(d) {
+  return ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+//==============================================================
+// Image cache — tries CDN first, falls back to Dropbox IDB cache
+//==============================================================
+function cdnUrl(folderName, songName) {
+  if (!CDN_BASE) return null;
+  const safeFolder = folderName.replace(/[^\w\-.]/g, '_');
+  const baseName = songName.replace(/\.[^.]+$/, '') + '.webp';
+  return `${CDN_BASE}/sheets/${safeFolder}/${encodeURIComponent(baseName)}`;
+}
+
+async function getImageBlob(song, folderName) {
+  // Try CDN (GitHub Pages compressed WebP) first
+  const url = cdnUrl(folderName, song.name);
+  if (url) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) return { url, fromCdn: true };
+    } catch (e) {}
+  }
+  // Fall back to IDB cache then Dropbox
+  const key = song.rev || song.path;
+  const cached = await idbGet('images', key);
+  if (cached) return { blob: cached };
+  const blob = await dbxDownloadBytes(song.path);
+  try { await idbSet('images', key, blob); } catch (e) {}
+  return { blob };
+}
+
+//==============================================================
+// UI helpers
+//==============================================================
+const app = document.getElementById('app');
+const titleEl = document.getElementById('title');
+const backBtn = document.getElementById('backBtn');
+const refreshBtn = document.getElementById('refreshBtn');
+const statusDot = document.getElementById('statusDot');
+const toastEl = document.getElementById('toast');
+
+function showToast(text, ms = 2200) {
+  toastEl.textContent = text;
+  toastEl.className = 'toast';
+  toastEl.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toastEl.style.display = 'none', ms);
+}
+function updateStatusDot() {
+  statusDot.className = navigator.onLine ? 'dot' : 'dot offline-cached';
+  statusDot.title = navigator.onLine ? '在线' : '离线（仅缓存）';
+}
+window.addEventListener('online', updateStatusDot);
+window.addEventListener('offline', updateStatusDot);
+updateStatusDot();
+
+//==============================================================
+// Week list view
+//==============================================================
+async function renderWeekList(forceRefresh = false) {
+  titleEl.textContent = '敬拜团歌谱';
+  backBtn.style.display = 'none';
+  app.innerHTML = '<div class="empty"><div class="msg">正在读取周列表...</div></div>';
+
+  let folders;
+  try {
+    if (!forceRefresh) {
+      const cached = await idbGet('kv', 'week_list');
+      if (cached && Date.now() - cached.t < FOLDER_LIST_TTL_MS) folders = cached.entries;
+    }
+    if (!folders) {
+      const entries = await listFolder(WORSHIP_PATH);
+      folders = entries.filter(e => e['.tag'] === 'folder').map(e => ({name: e.name, id: e.id}));
+      await idbSet('kv', 'week_list', {t: Date.now(), entries: folders});
+    }
+  } catch (err) {
+    const cached = await idbGet('kv', 'week_list');
+    if (cached) {
+      folders = cached.entries;
+      showToast('使用缓存（' + Math.round((Date.now() - cached.t) / 60000) + ' 分钟前）');
+    } else {
+      app.innerHTML = `<div class="empty">
+        <div class="msg">无法读取歌谱，请检查网络</div>
+        <div class="hint">${escapeHtml(err.message || String(err))}</div>
+        <div class="hint" style="margin-top:16px;">
+          <a href="${FALLBACK_DROPBOX_URL}" target="_blank" rel="noopener">在 Dropbox 网页里打开</a>
+        </div></div>`;
+      return;
+    }
+  }
+
+  const parsed = folders.map(f => parseFolderName(f.name)).filter(Boolean);
+  parsed.sort((a, b) => b.date - a.date);
+  const current = findCurrentFolder(parsed);
+
+  if (!location.hash && !forceRefresh && current) {
+    location.hash = '#/w/' + encodeURIComponent(current.name);
+    return;
+  }
+
+  let html = '<div class="week-list">';
+  html += `<div class="hint">共 ${parsed.length} 个主日</div>`;
+  for (const f of parsed) {
+    const isCurr = current && f.name === current.name;
+    html += `<a class="week-card${isCurr?' current':''}" href="#/w/${encodeURIComponent(f.name)}">
+      ${isCurr ? '<span class="badge">本周</span>' : ''}
+      <div class="date">${f.dateStr.replace(/-/g,'/')} <span style="color:#aaa;font-size:13px;">${weekday(f.date)}</span></div>
+      <div class="leader">${escapeHtml(f.leader)}</div>
+    </a>`;
+  }
+  html += '</div>';
+  // Stats entry
+  html += '<a class="stats-link" href="#/stats">服事统计分析</a>';
+  // Unrecognized folders footnote
+  const others = folders.filter(f => !parseFolderName(f.name));
+  if (others.length) {
+    html += `<div style="text-align:center;color:#ccc;font-size:11px;padding:0 16px 24px;">未识别文件夹：${others.map(f=>escapeHtml(f.name)).join('、')}</div>`;
+  }
+
+  app.innerHTML = `<div class="view">${html}</div>`;
+}
+
+//==============================================================
+// Song viewer
+//==============================================================
+let viewer = null;
+async function renderSongViewer(folderName, forceRefresh = false) {
+  backBtn.style.display = '';
+  const parsed = parseFolderName(folderName);
+  titleEl.textContent = parsed
+    ? `${parsed.dateStr.slice(5).replace('-','/')} · ${parsed.leader}`
+    : folderName;
+  app.innerHTML = '<div class="empty"><div class="msg">正在加载这周歌谱...</div></div>';
+
+  const folderPath = WORSHIP_PATH + '/' + folderName;
+  const cacheKey = 'songs:' + folderName;
+  let songs;
+  try {
+    if (!forceRefresh) {
+      const c = await idbGet('kv', cacheKey);
+      if (c && Date.now() - c.t < FOLDER_LIST_TTL_MS) songs = c.entries;
+    }
+    if (!songs) {
+      const entries = await listFolder(folderPath);
+      songs = entries
+        .filter(e => e['.tag'] === 'file' && /\.(jpg|jpeg|png|gif|webp)$/i.test(e.name))
+        .map(e => ({name: e.name, path: e.path_lower, rev: e.rev}));
+      songs.sort((a, b) => {
+        const na = parseInt(a.name), nb = parseInt(b.name);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        if (!isNaN(na)) return -1; if (!isNaN(nb)) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      await idbSet('kv', cacheKey, {t: Date.now(), entries: songs});
+    }
+  } catch (err) {
+    const c = await idbGet('kv', cacheKey);
+    if (c) { songs = c.entries; showToast('使用缓存歌曲列表'); }
+    else {
+      app.innerHTML = `<div class="empty">
+        <div class="msg">无法读取这周歌谱，请检查网络</div>
+        <div class="hint">${escapeHtml(err.message || String(err))}</div></div>`;
+      return;
+    }
+  }
+  if (!songs.length) {
+    app.innerHTML = '<div class="empty"><div class="msg">这周文件夹里没有图片歌谱</div></div>';
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="viewer">
+      <div class="progress" id="progress"></div>
+      <div class="stage" id="stage">
+        <div class="slide" id="slide">
+          <div class="loading">加载中...</div>
+        </div>
+      </div>
+      <div class="footer">
+        <button class="annot-toggle" id="annotToggle">批注</button>
+        <div class="indicator" id="indicator">— / —</div>
+      </div>
+      <div class="annot-bar" id="annotBar">
+        <div class="color-dot sel" data-color="#333333" style="background:#333;"></div>
+        <div class="color-dot" data-color="#d93025" style="background:#d93025;"></div>
+        <div class="color-dot" data-color="#1a73e8" style="background:#1a73e8;"></div>
+        <div class="color-dot" data-color="#188038" style="background:#188038;"></div>
+        <div class="annot-sep"></div>
+        <button class="annot-size sel" data-size="2">细</button>
+        <button class="annot-size" data-size="5">粗</button>
+        <div class="annot-sep"></div>
+        <button class="annot-act" id="annotUndo">撤销</button>
+        <button class="annot-act" id="annotClear">清空</button>
+        <button class="annot-done" id="annotDone">完成</button>
+      </div>
+    </div>`;
+
+  const annotCtrl = new AnnotationCtrl(
+    document.getElementById('stage'),
+    document.getElementById('slide')
+  );
+  viewer = new ViewerCtrl(songs, folderName, annotCtrl);
+
+  // Annotation UI wiring
+  const annotToggle = document.getElementById('annotToggle');
+  const annotBar = document.getElementById('annotBar');
+  function setAnnotMode(on) {
+    viewer._annotMode = on;
+    annotCtrl.setActive(on);
+    annotToggle.textContent = on ? '退出批注' : '批注';
+    annotToggle.className = 'annot-toggle' + (on ? ' on' : '');
+    annotBar.className = 'annot-bar' + (on ? ' visible' : '');
+    // Freeze/unfreeze native scroll on stage
+    document.getElementById('stage').style.touchAction = on ? 'none' : 'pan-y';
+  }
+  annotToggle.addEventListener('click', () => setAnnotMode(!viewer._annotMode));
+  document.getElementById('annotDone').addEventListener('click', () => setAnnotMode(false));
+  document.getElementById('annotUndo').addEventListener('click', () => annotCtrl.undo());
+  document.getElementById('annotClear').addEventListener('click', () => {
+    if (window.confirm('清空当前歌谱上的所有批注？')) annotCtrl.clear();
+  });
+  document.querySelectorAll('.color-dot').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.color-dot').forEach(e => e.classList.remove('sel'));
+      el.classList.add('sel');
+      annotCtrl.setColor(el.dataset.color);
+    });
+  });
+  document.querySelectorAll('.annot-size').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.annot-size').forEach(e => e.classList.remove('sel'));
+      el.classList.add('sel');
+      annotCtrl.setWidth(+el.dataset.size);
+    });
+  });
+
+  viewer.start();
+}
+
+//==============================================================
+// AnnotationCtrl — canvas overlay drawing with IDB persistence
+//==============================================================
+class AnnotationCtrl {
+  constructor(stage, slide) {
+    this._stage = stage;
+    this._slide = slide;
+    this._strokes = [];
+    this._cur = null;       // current in-progress stroke
+    this._imgEl = null;
+    this._songKey = null;
+    this._color = '#333333';
+    this._width = 2;
+    this._active = false;
+    this._canvas = null;
+    this._ctx = null;
+    this._cssW = 0;
+    this._cssH = 0;
+    this._ro = null;
+    this._createCanvas();
+  }
+
+  _createCanvas() {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'annot-canvas';
+    this._slide.appendChild(canvas);
+    this._canvas = canvas;
+    this._ctx = canvas.getContext('2d');
+    this._bindPointerEvents(canvas);
+  }
+
+  // Call after a new image is placed in the slide
+  setImage(imgEl, songKey) {
+    this._imgEl = imgEl;
+    this._songKey = songKey;
+    this._strokes = [];
+    this._cur = null;
+    this._syncSize();
+    this._loadFromDb();
+  }
+
+  setActive(on) {
+    this._active = on;
+    this._canvas.className = 'annot-canvas' + (on ? ' active' : '');
+  }
+  setColor(c) { this._color = c; }
+  setWidth(w) { this._width = w; }
+
+  _syncSize() {
+    const img = this._imgEl;
+    if (!img) return;
+    const doSync = () => {
+      const cssW = img.offsetWidth;
+      const cssH = img.offsetHeight;
+      if (!cssW || !cssH) return;
+      const dpr = window.devicePixelRatio || 1;
+      this._cssW = cssW;
+      this._cssH = cssH;
+      this._canvas.width = Math.round(cssW * dpr);
+      this._canvas.height = Math.round(cssH * dpr);
+      this._canvas.style.width = cssW + 'px';
+      this._canvas.style.height = cssH + 'px';
+      this._ctx.resetTransform();
+      this._ctx.scale(dpr, dpr);
+      this._redraw();
+    };
+    if (img.complete && img.naturalWidth) doSync();
+    else img.addEventListener('load', doSync, {once: true});
+    if (this._ro) this._ro.disconnect();
+    this._ro = new ResizeObserver(doSync);
+    this._ro.observe(img);
+  }
+
+  _bindPointerEvents(canvas) {
+    const getN = (e) => {
+      // Normalized coordinates relative to canvas CSS size
+      const rect = canvas.getBoundingClientRect();
+      return [
+        (e.clientX - rect.left) / (rect.width || 1),
+        (e.clientY - rect.top) / (rect.height || 1)
+      ];
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!this._active) return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      this._cur = { c: this._color, w: this._width, pts: [getN(e)] };
+    }, {passive: false});
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!this._active || !this._cur) return;
+      e.preventDefault();
+      this._cur.pts.push(getN(e));
+      this._redraw();
+    }, {passive: false});
+
+    const endStroke = () => {
+      if (!this._cur) return;
+      if (this._cur.pts.length > 1) {
+        this._strokes.push(this._cur);
+        this._saveToDb();
+      }
+      this._cur = null;
+    };
+    canvas.addEventListener('pointerup', endStroke);
+    canvas.addEventListener('pointercancel', () => { this._cur = null; });
+  }
+
+  _redraw() {
+    const ctx = this._ctx;
+    const w = this._cssW, h = this._cssH;
+    if (!ctx || !w || !h) return;
+    ctx.clearRect(0, 0, w, h);
+    const allStrokes = this._cur ? [...this._strokes, this._cur] : this._strokes;
+    for (const s of allStrokes) {
+      if (s.pts.length < 2) continue;
+      ctx.save();
+      ctx.strokeStyle = s.c;
+      ctx.lineWidth = s.w;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(s.pts[0][0] * w, s.pts[0][1] * h);
+      for (let i = 1; i < s.pts.length; i++) {
+        ctx.lineTo(s.pts[i][0] * w, s.pts[i][1] * h);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  async _loadFromDb() {
+    if (!this._songKey) return;
+    try {
+      const data = await idbGet('annotations', this._songKey);
+      if (data) { this._strokes = data.strokes || []; this._redraw(); }
+    } catch(e) {}
+  }
+
+  async _saveToDb() {
+    if (!this._songKey) return;
+    try { await idbSet('annotations', this._songKey, {strokes: this._strokes}); } catch(e) {}
+  }
+
+  undo() {
+    if (!this._strokes.length) return;
+    this._strokes.pop();
+    this._redraw();
+    this._saveToDb();
+  }
+
+  clear() {
+    this._strokes = [];
+    this._redraw();
+    this._saveToDb();
+  }
+
+  destroy() {
+    if (this._ro) this._ro.disconnect();
+    // canvas stays in slide DOM until slide is replaced
+  }
+}
+
+//==============================================================
+// ViewerCtrl — swipe carousel + pinch zoom + double-tap
+//==============================================================
+class ViewerCtrl {
+  constructor(songs, folderName, annotCtrl) {
+    this.songs = songs;
+    this.folderName = folderName;
+    this._annotCtrl = annotCtrl;
+    this.idx = 0;
+    this.stage = document.getElementById('stage');
+    this.slide = document.getElementById('slide');
+    this.indicator = document.getElementById('indicator');
+    this.progress = document.getElementById('progress');
+    this.scale = 1; this.tx = 0; this.ty = 0;
+    this._blobUrls = {};
+    this._annotMode = false;
+    window.addEventListener('keydown', this._onKey = (e) => {
+      if (e.key === 'ArrowLeft') this.go(-1);
+      else if (e.key === 'ArrowRight') this.go(1);
+    });
+    this._bindGestures();
+  }
+
+  destroy() {
+    window.removeEventListener('keydown', this._onKey);
+    for (const u of Object.values(this._blobUrls)) URL.revokeObjectURL(u);
+    if (this._annotCtrl) this._annotCtrl.destroy();
+  }
+
+  async start() {
+    await this.show(0);
+    if (this.songs.length > 1) this._preload(1);
+    if (this.songs.length > 2) this._preload(2);
+  }
+
+  async _preload(i) {
+    if (i < 0 || i >= this.songs.length || this._blobUrls[i]) return;
+    try {
+      const result = await getImageBlob(this.songs[i], this.folderName);
+      if (result.fromCdn) {
+        this._blobUrls[i] = result.url;
+      } else if (result.blob && !this._blobUrls[i]) {
+        this._blobUrls[i] = URL.createObjectURL(result.blob);
+      }
+    } catch (e) {}
+  }
+
+  _clearSlide() {
+    // Remove everything in slide except the annotation canvas
+    Array.from(this.slide.children).forEach(c => {
+      if (!c.classList.contains('annot-canvas')) c.remove();
+    });
+  }
+
+  async show(i) {
+    if (i < 0 || i >= this.songs.length) return;
+    this.idx = i;
+    this._resetTransform();
+    const song = this.songs[i];
+    this.indicator.textContent = `${i+1} / ${this.songs.length}  ·  ${stripExt(song.name)}`;
+
+    this._clearSlide();
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'loading';
+    loadingEl.textContent = '加载中...';
+    this.slide.insertBefore(loadingEl, this.slide.firstChild);
+    this.progress.style.width = '20%';
+
+    try {
+      let url = this._blobUrls[i];
+      if (!url) {
+        const result = await getImageBlob(song, this.folderName);
+        if (result.fromCdn) {
+          url = this._blobUrls[i] = result.url;
+        } else {
+          url = this._blobUrls[i] = URL.createObjectURL(result.blob);
+        }
+      }
+      this.progress.style.width = '100%';
+      const img = new Image();
+      img.id = 'curImg';
+      img.src = url;
+      img.onload = () => { this.progress.style.width = '0'; };
+      loadingEl.remove();
+      this.slide.insertBefore(img, this.slide.firstChild);
+      this._curImg = img;
+      // Hand off to annotation controller
+      if (this._annotCtrl) {
+        const key = 'annot:' + this.folderName + ':' + song.name;
+        this._annotCtrl.setImage(img, key);
+      }
+    } catch (err) {
+      this.progress.style.width = '0';
+      loadingEl.remove();
+      const errEl = document.createElement('div');
+      errEl.className = 'err';
+      errEl.textContent = '加载失败：' + (err.message || String(err));
+      this.slide.insertBefore(errEl, this.slide.firstChild);
+    }
+
+    this._preload(i + 1);
+    this._preload(i - 1);
+    // Free far images
+    for (const k of Object.keys(this._blobUrls)) {
+      const ki = +k;
+      if (Math.abs(ki - i) > 2) {
+        const u = this._blobUrls[ki];
+        if (u && !u.startsWith('http')) URL.revokeObjectURL(u);
+        delete this._blobUrls[ki];
+      }
+    }
+  }
+
+  go(delta) {
+    const ni = this.idx + delta;
+    if (ni < 0 || ni >= this.songs.length) {
+      this.slide.style.transform = `translateX(${delta < 0 ? 14 : -14}px)`;
+      setTimeout(() => this.slide.style.transform = '', 180);
+      return;
+    }
+    this.show(ni);
+  }
+
+  _resetTransform() {
+    this.scale = 1; this.tx = 0; this.ty = 0;
+    if (this._curImg) this._curImg.style.transform = '';
+    this.stage.scrollTop = 0;
+  }
+  _applyTransform() {
+    if (this._curImg)
+      this._curImg.style.transform = `translate(${this.tx}px,${this.ty}px) scale(${this.scale})`;
+  }
+
+  _bindGestures() {
+    let startX = 0, startY = 0, startDist = 0, startScale = 1, startTx = 0, startTy = 0;
+    let mode = null;       // 'swipe' | 'pinch' | 'pan'
+    let gestureDir = null; // 'h' | 'v'
+    let lastTap = 0;
+
+    const onStart = (e) => {
+      if (this._annotMode) return;
+      const t = e.touches;
+      if (!t || !t.length) return;
+      gestureDir = null;
+      if (t.length === 2) {
+        mode = 'pinch';
+        startDist = dist2(t[0], t[1]);
+        startScale = this.scale;
+      } else {
+        startX = t[0].clientX; startY = t[0].clientY;
+        startTx = this.tx; startTy = this.ty;
+        mode = this.scale > 1.05 ? 'pan' : 'swipe';
+      }
+    };
+
+    const onMove = (e) => {
+      if (this._annotMode) return;
+      const t = e.touches;
+      if (!t) return;
+      if (mode === 'pinch' && t.length === 2) {
+        e.preventDefault();
+        this.scale = Math.max(1, Math.min(5, startScale * dist2(t[0],t[1]) / startDist));
+        this._applyTransform();
+        return;
+      }
+      if (mode === 'pan' && t.length === 1) {
+        e.preventDefault();
+        this.tx = startTx + (t[0].clientX - startX);
+        this.ty = startTy + (t[0].clientY - startY);
+        this._applyTransform();
+        return;
+      }
+      if (mode === 'swipe' && t.length === 1) {
+        const dx = t[0].clientX - startX;
+        const dy = t[0].clientY - startY;
+        if (!gestureDir && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+          gestureDir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+        }
+        if (gestureDir === 'h') {
+          e.preventDefault();
+          this.slide.style.transform = `translateX(${dx}px)`;
+        }
+      }
+    };
+
+    const onEnd = (e) => {
+      if (this._annotMode) return;
+      if (mode === 'swipe' && gestureDir === 'h') {
+        const dx = e.changedTouches?.[0] ? e.changedTouches[0].clientX - startX : 0;
+        this.slide.style.transform = '';
+        if (Math.abs(dx) > 60) this.go(dx < 0 ? 1 : -1);
+      } else if (mode === 'pinch') {
+        if (this.scale < 1.05) this._resetTransform();
+      }
+      mode = null; gestureDir = null;
+    };
+
+    const onClick = () => {
+      const now = Date.now();
+      if (now - lastTap < 300) this._resetTransform();
+      lastTap = now;
+    };
+
+    this.stage.addEventListener('touchstart', onStart, {passive: true});
+    this.stage.addEventListener('touchmove', onMove, {passive: false});
+    this.stage.addEventListener('touchend', onEnd);
+    this.stage.addEventListener('touchcancel', onEnd);
+    this.stage.addEventListener('click', onClick);
+  }
+}
+
+function dist2(a, b) {
+  const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+function stripExt(name) { return name.replace(/\.[^.]+$/, ''); }
+
+//==============================================================
+// Stats dashboard
+//==============================================================
+function normalizeFileName(name) {
+  return name.replace(/\.[^.]+$/, '').replace(/^\d+[\s._\-]+/, '').trim();
+}
+
+async function renderStats(doDeepScan = false) {
+  titleEl.textContent = '服事统计';
+  backBtn.style.display = '';
+  app.innerHTML = '<div class="empty"><div class="msg">正在分析数据...</div></div>';
+
+  const weekListData = await idbGet('kv', 'week_list');
+  if (!weekListData) {
+    app.innerHTML = '<div class="view"><div class="stats-page"><div class="empty"><div class="msg">暂无数据，请先浏览几个主日的歌谱</div></div></div></div>';
+    return;
+  }
+
+  const folders = weekListData.entries;
+  const parsed = folders.map(f => parseFolderName(f.name)).filter(Boolean);
+  parsed.sort((a, b) => a.date - b.date);
+
+  // If deep scan requested, load all uncached song lists from Dropbox
+  if (doDeepScan) {
+    showToast('正在扫描全部歌单，请稍候...', 10000);
+    for (const f of parsed) {
+      const key = 'songs:' + f.name;
+      const c = await idbGet('kv', key);
+      if (!c) {
+        try {
+          const entries = await listFolder(WORSHIP_PATH + '/' + f.name);
+          const songs = entries
+            .filter(e => e['.tag']==='file' && /\.(jpg|jpeg|png|gif|webp)$/i.test(e.name))
+            .map(e => ({name: e.name, path: e.path_lower, rev: e.rev}));
+          await idbSet('kv', key, {t: Date.now(), entries: songs});
+        } catch(e) { /* skip */ }
+      }
+    }
+    showToast('扫描完成');
+  }
+
+  // Leader frequency
+  const leaderMap = {};
+  for (const f of parsed) leaderMap[f.leader] = (leaderMap[f.leader] || 0) + 1;
+  const leaders = Object.entries(leaderMap).sort((a,b) => b[1] - a[1]);
+
+  // Song frequency from cached song lists
+  const songMap = {};
+  let cachedWeeks = 0;
+  const totalWeeks = parsed.length;
+  for (const f of parsed) {
+    const c = await idbGet('kv', 'songs:' + f.name);
+    if (!c) continue;
+    cachedWeeks++;
+    for (const s of c.entries) {
+      const n = normalizeFileName(s.name);
+      if (n) songMap[n] = (songMap[n] || 0) + 1;
+    }
+  }
+  const topSongs = Object.entries(songMap).sort((a,b) => b[1]-a[1]).slice(0, 30);
+
+  // Render
+  const coveragePct = totalWeeks ? Math.round(cachedWeeks / totalWeeks * 100) : 0;
+  let html = '<div class="view"><div class="stats-page">';
+
+  // Summary boxes
+  html += `<div class="stats-summary">
+    <div class="stat-box"><div class="stat-num">${totalWeeks}</div><div class="stat-lbl">主日聚会</div></div>
+    <div class="stat-box"><div class="stat-num">${leaders.length}</div><div class="stat-lbl">服事同工</div></div>
+    <div class="stat-box"><div class="stat-num">${Object.keys(songMap).length}</div><div class="stat-lbl">歌曲种类</div></div>
+  </div>`;
+
+  // Worship leader chart
+  if (leaders.length) {
+    const maxL = leaders[0][1];
+    html += '<div class="stats-section"><div class="stats-h">同工服事次数</div>';
+    for (const [name, cnt] of leaders) {
+      html += `<div class="stats-row">
+        <div class="stats-name">${escapeHtml(name)}</div>
+        <div class="stats-bar-bg"><div class="stats-bar" style="width:${Math.round(cnt/maxL*100)}%"></div></div>
+        <div class="stats-cnt">${cnt} 次</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  // Song frequency chart
+  if (topSongs.length) {
+    const maxS = topSongs[0][1];
+    html += `<div class="stats-section"><div class="stats-h">常用歌曲 Top ${topSongs.length}</div>`;
+    for (const [name, cnt] of topSongs) {
+      html += `<div class="stats-row">
+        <div class="stats-name">${escapeHtml(name)}</div>
+        <div class="stats-bar-bg"><div class="stats-bar" style="width:${Math.round(cnt/maxS*100)}%"></div></div>
+        <div class="stats-cnt">${cnt} 次</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  // Coverage note + deep scan
+  html += `<div class="stats-note">
+    歌曲数据基于已浏览的 ${cachedWeeks}/${totalWeeks} 个主日（${coveragePct}%）。`;
+  if (cachedWeeks < totalWeeks) {
+    html += `<br>点击深度扫描可读取全部，需要联网。`;
+  }
+  html += '</div>';
+  if (cachedWeeks < totalWeeks) {
+    html += `<button class="stats-scan-btn" id="deepScanBtn">深度扫描（${totalWeeks - cachedWeeks} 个主日）</button>`;
+  }
+
+  html += '</div></div>';
+  app.innerHTML = html;
+
+  const scanBtn = document.getElementById('deepScanBtn');
+  if (scanBtn) scanBtn.addEventListener('click', () => renderStats(true));
+}
+
+//==============================================================
+// Router
+//==============================================================
+function destroyViewer() {
+  if (viewer) { viewer.destroy(); viewer = null; }
+}
+
+function route() {
+  const h = location.hash || '#/';
+  destroyViewer();
+  if (h.startsWith('#/w/')) {
+    renderSongViewer(decodeURIComponent(h.slice(4)));
+  } else if (h === '#/stats') {
+    renderStats();
+  } else {
+    renderWeekList();
+  }
+}
+
+window.addEventListener('hashchange', route);
+backBtn.addEventListener('click', () => {
+  if (location.hash && location.hash !== '#/') location.hash = '#/';
+  else history.back();
+});
+refreshBtn.addEventListener('click', async () => {
+  refreshBtn.style.opacity = '0.4';
+  destroyViewer();
+  if (location.hash.startsWith('#/w/')) {
+    await renderSongViewer(decodeURIComponent(location.hash.slice(4)), true);
+  } else if (location.hash === '#/stats') {
+    await renderStats();
+  } else {
+    await renderWeekList(true);
+  }
+  refreshBtn.style.opacity = '';
+});
+
+route();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js?v=' + APP_VERSION).catch(() => {});
+}
+</script>
+</body>
+</html>
