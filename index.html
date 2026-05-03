@@ -570,7 +570,7 @@ async function renderWeekList(forceRefresh = false) {
   parsed.sort((a, b) => b.date - a.date);
   const current = findCurrentFolder(parsed);
 
-  const RECENT_COUNT = 4;
+  const RECENT_COUNT = 6;
   const recentWeeks = parsed.slice(0, RECENT_COUNT);
   const olderWeeks  = parsed.slice(RECENT_COUNT);
 
